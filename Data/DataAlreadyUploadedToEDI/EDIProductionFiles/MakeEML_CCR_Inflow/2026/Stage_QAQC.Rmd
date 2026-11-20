@@ -467,7 +467,7 @@ hobo |>
 # 2) We are assuming that salinity is 0 and that is a very fair assumption
 
 stage_obs <- hobo|>
-  mutate(density = water.density(Temp_C), #1000,
+  mutate(density = 1000, #water.density(Temp_C), #1000,
          waterlevel_cm = ((corrected_Pres_kPa*1000)/(9.81*density))*100)|>
   # remove the density column because we don't need it any more
   select(-density)|>

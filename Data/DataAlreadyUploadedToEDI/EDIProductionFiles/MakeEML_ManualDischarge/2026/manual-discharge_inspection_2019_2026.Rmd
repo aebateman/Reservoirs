@@ -20,7 +20,7 @@ When you click the **Knit** button a document will be generated that includes bo
 knitr::opts_chunk$set(echo = TRUE)
 
 # Add the names of the packages 
-pacman::p_load(tidyverse, lubridate, gsheet, dplyr, readr)
+pacman::p_load(tidyverse, lubridate, gsheet, dplyr, readr, htmltools, plotly)
 
 # QAQC function
 source('https://raw.githubusercontent.com/CareyLabVT/Reservoirs/master/Scripts/L1_functions/manual_discharge_create.R')
@@ -49,8 +49,8 @@ staged_edi <- ManualDischarge_qaqc(gsheet_url = gsheet_url,
 ## Date trimming variables
 start_date <- min(staged_edi$DateTime)
 end_date <- max(staged_edi$DateTime)
-start_trim_date <- as.POSIXct("2024-01-01")
-end_trim_date <- as.POSIXct("2025-12-31")
+start_trim_date <- as.POSIXct("2025-01-01")
+end_trim_date <- as.POSIXct("2026-12-31")
 
 
 ```
@@ -175,7 +175,11 @@ for (site in active_site_names) {
   all_plots[[length(all_plots) + 1]] <- p
 }
 
-tagList(lapply(all_plots, ggplotly))
+tagList(
+  lapply(all_plots, function(p) {
+    ggplotly(p) %>% toWebGL()
+  })
+)
 ```
 
 
@@ -428,7 +432,7 @@ staged_edi %>%
 ```{r Make new CSV with current and historic files}
 
 # Need to decide on a naming convention for this file
-write.csv(staged_edi, "manual-discharge_2019_2025.csv", row.names = F)
+write.csv(staged_edi, "manual-discharge_2019_2026.csv", row.names = F)
 
 ```
 

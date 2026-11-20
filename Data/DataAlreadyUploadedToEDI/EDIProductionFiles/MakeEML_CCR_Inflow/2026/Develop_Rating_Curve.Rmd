@@ -5,6 +5,8 @@ date: "2026-02-24"
 output: html_document
 ---
 
+#Try using r package bdrc and/or python package ratingcurve (USGS-ML)
+
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
 
@@ -13,7 +15,7 @@ pacman::p_load(tidyverse, lubridate, here, dataRetrieval, plotly)
 
 #Define which site/timeframe
 res <- "CCR"
-site <- 101
+site <- 301
 time_start <- as.POSIXct("2024-01-10 00:00:00", tz = "EST")
 time_end <- as.POSIXct("2027-01-01 00:00:00", tz = "EST")
 curve_name <- 1 #update numbering as develop new RC for each site
@@ -28,18 +30,19 @@ iter <- "All"
 ```{r inital data}
 #pull discharge measurements and match to corrected stage
 
-#flowmate Q
-flowmate <- read_csv("https://pasta.lternet.edu/package/data/eml/edi/454/9/0e7fe16623a1ad2a67774c23ce8a29d8?key=yltMpS4UEIk12AvB9L7OL5uRiG0")
+#discrete Q
+flowmate <- read_csv("C:/Users/abate/OneDrive/Documents/Github/Reservoirs/Data/DataAlreadyUploadedToEDI/EDIProductionFiles/MakeEML_ManualDischarge/2026/manual-discharge_2019_2025.csv")
+  #read_csv("#https://pasta.lternet.edu/package/data/eml/edi/454/9/0e7fe16623a1ad2a67774c23ce8a29d8?key=yltMpS4UEIk12AvB9L7OL5uRiG0")
 
-#add in most recent Q measurements
-flowmate <- add_row(
-  flowmate,
-  Reservoir = res,
-  Site = site,
-  DateTime = as.POSIXct("2026-02-17 12:30:00", tz = "America/New_York"), 
-  Flow_cms = 0.0453300,
-  Flag_DateTime = 0,
-  Flag_Flow_cms = 0)
+# #add in most recent Q measurements
+# flowmate <- add_row(
+#   flowmate,
+#   Reservoir = res,
+#   Site = site,
+#   DateTime = as.POSIXct("2026-02-17 12:30:00", tz = "America/New_York"), 
+#   Flow_cms = 0.0453300,
+#   Flag_DateTime = 0,
+#   Flag_Flow_cms = 0)
 
 # set timezone to American/New_york
 flowmate$DateTime <- force_tz(as.POSIXct(flowmate$DateTime), tz = "America/New_York")
@@ -47,17 +50,27 @@ flowmate$DateTime <- force_tz(as.POSIXct(flowmate$DateTime), tz = "America/New_Y
 #select site of interest
 flowmate <- flowmate |> 
   filter(Reservoir == res, 
-         Site == site)|>
-    select(DateTime, Flow_cms, Flag_DateTime, Flag_Flow_cms)
+         Site %in% site)|>
+    select(Reservoir, Site, DateTime, Flow_cms, Flag_DateTime, Flag_Flow_cms)
 
 # convert to EST
 flowmate$DateTime <- with_tz(as.POSIXct(flowmate$DateTime), tz = "EST")
+
+flowmate1 <- flowmate |>
+  group_by(Reservoir, Site, DateTime) |>
+  summarise(Flow_cms = mean(Flow_cms)) |>
+  ungroup()
   
 #import corrected stage data
-stage <- read_csv(here("Data", "DataAlreadyUploadedtoEDI", "EDIProductionFiles", "MakeEML_CCR_Inflow", "2024", "HPB_stage_2024_2025.csv"))
+stage <- read_csv(here("Data", "DataAlreadyUploadedtoEDI", "EDIProductionFiles", "MakeEML_CCR_Inflow", "2026", "pt_stage_2024_2026.csv"))
 
 # Put the time into EST
 stage$DateTime <- force_tz(as.POSIXct(stage$DateTime), tz = "EST")
+
+#filter for site
+stage <- stage |>
+  filter(Reservoir == res,
+         Site %in% site)
 
 ##join stage and discharge by closest observation 
 by <- join_by(closest(DateTime >= DateTime))
@@ -65,36 +78,38 @@ by <- join_by(closest(DateTime >= DateTime))
 stage_Q_df <- left_join(flowmate, stage, by)|>
   dplyr::rename(DateTime = DateTime.x)|>
   select(-DateTime.y)|>
-  select(DateTime, stage_cm, Flow_cms, Flag_DateTime, Flag_Flow_cms, Flag_stage_cm)|>
+  select(DateTime, stage_elev_m, Flow_cms, Flag_DateTime, Flag_Flow_cms, Flag_stage_elev_m)|>
   filter(
          DateTime >= time_start,
          DateTime <= time_end)
 
-#manually add in reasonable stages for times that are NA that can be known
-stage_Q_df <- stage_Q_df |>
-  mutate(
-    stage_cm = if_else(
-      as.Date(DateTime) == ymd("2024-04-23"),
-      30.16215,   # reasonable stage value
-      stage_cm
-    )
-  )|>
-  mutate(
-    stage_cm = if_else(
-      as.Date(DateTime) == ymd("2025-04-16"),
-      35.78281,   # reasonable stage value
-      stage_cm
-    )
-  )
+# #manually add in reasonable stages for times that are NA that can be known
+# stage_Q_df <- stage_Q_df |>
+#   mutate(
+#     stage_elev_m = if_else(
+#       as.Date(DateTime) == ymd("2024-04-23"),
+#       30.16215,   # reasonable stage value
+#       stage_elev_m
+#     )
+#   )|>
+#   mutate(
+#     stage_elev_m = if_else(
+#       as.Date(DateTime) == ymd("2025-04-16"),
+#       35.78281,   # reasonable stage value
+#       stage_elev_m
+#     )
+#   )
   
 
 ## quick data viz
-stage_Q_df |> 
-  pivot_longer(-1) |> 
+a <- stage_Q_df |> 
+  pivot_longer(cols = c(stage_elev_m, Flow_cms)) |> 
   ggplot(aes(x = DateTime, y = value))+
   geom_point()+
   facet_wrap(~name, scales = "free_y", ncol = 1)+
   theme_bw()
+
+ggplotly(a)
 ```
 ##Select which measurements to use
 
@@ -102,10 +117,10 @@ stage_Q_df |>
 
 stage_Q_df <- stage_Q_df |>
   filter(
-    #Flag_DateTime == 0, #only measurements we know exact time to match to stage
+    Flag_DateTime == 0, #only measurements we know exact time to match to stage
     !is.na(Flow_cms),
-    !is.na(stage_cm),
-    #stage_cm > 0,
+    !is.na(stage_elev_m),
+    #stage_elev_m > 0,
     Flow_cms > 0,
     )
 
@@ -120,11 +135,20 @@ Helpful slide deck with key concepts: <https://statuschecker.fgdc.gov/lmp/surfac
 The gage height of zero flow (GZF) is the stage at which there would be no flow at the gaging station, ie Q = 0 cms. This is a good value to collect in the field periodically. It is always downstream of the gaging point and is the lowest point along the stream bottom along the cross section that controls the flow. It is measured by finding the depth to the water surface at that point and then subtracting that from the current recorded stage at the gage.
 
 ```{r rating curve, echo=FALSE}
-#Input gage height of zero flow, since datum +20, this makes all good stages >0. In future, will be field measured
-gzf = 18.6 
+#Import deployment GZF
+deploy_log <- read_csv(here("Data", "DataAlreadyUploadedtoEDI", "EDIProductionFiles",
+                            "MakeEML_CCR_Inflow", "2026",
+                            "pt_deploymentlog_2024_2026.csv"))
+
+gzf <- deploy_log |>
+  filter(Reservoir == res,
+         Site %in% site) |>
+  mutate(TIMESTAMP_start = as.POSIXct(TIMESTAMP_start, format = "%m/%d/%Y %H:%M")) |>
+  slice_min(abs(TIMESTAMP_start - time_end), n = 1) |> #get deployment closest to time period assessed
+  pull(gzf)
 
 # Fit nonlinear model: Q = a * (stage - gzf)^b
-rating_fit <- nls(Flow_cms ~ a * (stage_cm - gzf)^b, data = stage_Q_df, start = list(a = 0.01, b = 0.01))
+rating_fit <- nls(Flow_cms ~ a * (stage_elev_m - gzf)^b, data = stage_Q_df, start = list(a = 0.01, b = 0.01))
 
 # Look at the summary file
 summary(rating_fit)
@@ -141,15 +165,15 @@ RSE <- summary(rating_fit)$sigma
 ```{r Plot Rating Curve}
 #60 will show what this range looks like up until max stage in HF stage data
 fitline <- data.frame(
-  stage = seq(1, 60, by = 0.5))
+  stage = seq(min(stage_Q_df$stage_elev_m - 0.5), max(stage_Q_df$stage_elev_m + 1), by = 0.01))
 
 fitline$q <- a * (fitline$stage - gzf)^b
 
 #plot the Flow vs. the stage with water level over the rating curve
 stage_Q_df |> 
   ggplot(aes(x = Flow_cms)) +
-  geom_point(aes(y = stage_cm), size = 2) +
-  geom_line(data = fitline, aes(x = q, y = stage), color = "blue", size = 1) +
+  geom_point(aes(y = stage_elev_m), size = 2) +
+  geom_line(data = fitline, aes(x = q, y = stage), color = "blue", linewidth = 1) +
   theme_bw() +
   # xlim(0,1000) +
   labs(title = paste("Rating Curve Fit", iter),
@@ -158,7 +182,7 @@ stage_Q_df |>
 
 stage_Q_df |> 
   ggplot(aes(x = log10(Flow_cms))) +
-  geom_point(aes(y = log10(stage_cm - gzf)), size = 2) +
+  geom_point(aes(y = log10(stage_elev_m - gzf)), size = 2) +
   geom_line(data = fitline, aes(x = log10(q), y = log10(stage - gzf)), color = "blue", size = 1)+
   theme_bw() +
   # xlim(0,1000)+
@@ -169,21 +193,21 @@ stage_Q_df |>
 
 #Plot residuals
 plot(predict(rating_fit), residuals(rating_fit), xlab = "Predicted Values", ylab = "Residuals", main = paste("Residual Plot", iter))
-abline(h = 0, col = "red", lty = 2)
+#abline(h = 0, col = "red", lty = 2)
 
 
 #Find max and min stage of measurements used in RC development and compare to max min stage extrapolated over
 
-max_dev_stage <- max(stage_Q_df$stage_cm)
+max_dev_stage <- max(stage_Q_df$stage_elev_m)
 
-min_dev_stage <- min(stage_Q_df$stage_cm)
+min_dev_stage <- min(stage_Q_df$stage_elev_m)
 
 max_obs_stage <- stage |>
   filter(
     DateTime >= time_start,
     DateTime <= time_end
   ) |>
-  summarise(max_stage = max(stage_cm, na.rm = TRUE)) |>
+  summarise(max_stage = max(stage_elev_m, na.rm = TRUE)) |>
   pull(max_stage)
 
 min_obs_stage <- stage |>
@@ -191,7 +215,7 @@ min_obs_stage <- stage |>
     DateTime >= time_start,
     DateTime <= time_end
   ) |>
-  summarise(min_stage = min(stage_cm, na.rm = TRUE)) |>
+  summarise(min_stage = min(stage_elev_m, na.rm = TRUE)) |>
   pull(min_stage)
 
 ```
@@ -252,9 +276,9 @@ Q_timeseries <- rating_details |>
     DateTime >= time_start,
     DateTime <= time_end )|>
   mutate(
-    Q = a * (stage_cm - gzf)^b
+    Q = a * (stage_elev_m - gzf)^b
   ) |>
-  select(DateTime, stage_cm, Iteration, Q)|>
+  select(DateTime, stage_elev_m, Iteration, Q)|>
   pivot_wider(
     names_from = Iteration,
     values_from = Q,
